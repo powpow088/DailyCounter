@@ -1,0 +1,18 @@
+{
+  "name": "BigTap Counter",
+  "short_name": "Counter",
+  "description": "Fast, tappable daily counter with history",
+  "start_url": "/DailyCounter/",
+  "scope": "/DailyCounter/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
