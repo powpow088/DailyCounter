@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   RotateCcw, 
   Plus, 
-  Minus, 
   Trash2, 
   Menu, 
   BarChart3, 
@@ -19,9 +18,8 @@ import {
   Clock,
   Trophy,
   Filter,
-  Undo2,
-  Redo2,
-  Trash
+  Trash,
+  Archive
 } from 'lucide-react';
 
 // --- Types ---
@@ -199,10 +197,6 @@ const App: React.FC = () => {
     return projects[0]?.id || '';
   });
 
-  // Undo/Redo History State
-  const [history, setHistory] = useState<Project[][]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-
   const [isPressed, setIsPressed] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showFactoryResetConfirm, setShowFactoryResetConfirm] = useState(false);
@@ -219,28 +213,41 @@ const App: React.FC = () => {
   const [editingNameValue, setEditingNameValue] = useState('');
 
   // Deletion Confirmation State
-  const [deleteTarget, setDeleteTarget] = useState<{ type: 'project' | 'log', projectId: string, date?: string, name?: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ 
+    type: 'project' | 'log', 
+    projectId: string, 
+    date?: string, 
+    name?: string,
+    hasHistory?: boolean // To distinguish between soft delete and hard delete
+  } | null>(null);
 
   // --- Derived State ---
 
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
 
   useEffect(() => {
-    // Safety check: if active project is deleted or doesn't exist, switch to first available
-    if (!activeProject && projects.length > 0) {
-      setActiveProjectId(projects[0].id);
-    } else if (projects.length === 0) {
+    // Safety check: if active project is deleted or doesn't exist, switch to first available visible project
+    if (!activeProject) {
       const today = getTodayString();
-      const newDefault: Project = {
-        id: generateId(),
-        name: '默認計數 (Default)',
-        count: 0,
-        logs: {},
-        createdAt: Date.now(),
-        lastActiveDate: today
-      };
-      setProjects([newDefault]);
-      setActiveProjectId(newDefault.id);
+      const visible = projects.find(p => p.lastActiveDate === today);
+      if (visible) {
+        setActiveProjectId(visible.id);
+      } else if (projects.length > 0) {
+        // Fallback to any project if no today project
+        setActiveProjectId(projects[0].id);
+      } else {
+        // Create default if absolutely nothing exists
+        const newDefault: Project = {
+          id: generateId(),
+          name: '默認計數 (Default)',
+          count: 0,
+          logs: {},
+          createdAt: Date.now(),
+          lastActiveDate: today
+        };
+        setProjects([newDefault]);
+        setActiveProjectId(newDefault.id);
+      }
     }
   }, [activeProject, projects]);
 
@@ -261,66 +268,12 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
   }, [projects]);
 
-  // --- History (Undo/Redo) Logic ---
-  
-  const saveToHistory = (currentProjects: Project[]) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(JSON.parse(JSON.stringify(currentProjects))); // Deep copy
-    
-    // Limit history size to 20 steps to save memory
-    if (newHistory.length > 20) {
-      newHistory.shift();
-    } else {
-      setHistoryIndex(newHistory.length - 1);
-    }
-    setHistory(newHistory);
-  };
-
-  const handleUndo = () => {
-    if (historyIndex >= 0) {
-      const previousState = history[historyIndex];
-      // Save CURRENT state to history before undoing, so we can Redo
-      if (historyIndex === history.length - 1) {
-         // This is the first undo action, we need to make sure the "future" (current state before undo) is preserved
-         // But actually, standard undo/redo implementation usually pushes current state to stack *before* modification.
-         // Simplified approach: We treat 'history' as the stack of *past* states.
-         // When we Undo, we move pointer back. 
-      }
-      
-      setProjects(previousState);
-      setHistoryIndex(prev => prev - 1);
-    }
-  };
-
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
-      const nextIndex = historyIndex + 1;
-      const nextState = history[nextIndex];
-      setProjects(nextState);
-      setHistoryIndex(nextIndex);
-    }
-  };
-  
-  // Wrapper to capture state before changes
-  const updateProjectsWithHistory = (updater: (prev: Project[]) => Project[]) => {
-    // 1. Push current state to history (cutting off any redo future)
-    const currentHistory = history.slice(0, historyIndex + 1);
-    currentHistory.push(projects);
-    if (currentHistory.length > 20) currentHistory.shift();
-    
-    setHistory(currentHistory);
-    setHistoryIndex(currentHistory.length - 1);
-
-    // 2. Update state
-    setProjects(updater);
-  };
-
   // --- Handlers ---
 
   const handleIncrement = useCallback(() => {
     const today = getTodayString();
     
-    updateProjectsWithHistory(prev => prev.map(p => {
+    setProjects(prev => prev.map(p => {
       if (p.id === activeProjectId) {
         const currentDaily = p.logs[today] || 0;
         return {
@@ -338,42 +291,19 @@ const App: React.FC = () => {
 
     setIsPressed(true);
     setTimeout(() => setIsPressed(false), 100);
-  }, [activeProjectId, history, historyIndex, projects]); // Deps updated for history wrapper
-
-  const handleDecrement = useCallback(() => {
-    const today = getTodayString();
-
-    updateProjectsWithHistory(prev => prev.map(p => {
-      if (p.id === activeProjectId) {
-        const newCount = Math.max(0, p.count - 1);
-        const currentDaily = p.logs[today] || 0;
-        const newDaily = Math.max(0, currentDaily - 1);
-        
-        return {
-          ...p,
-          count: newCount,
-          lastActiveDate: today,
-          logs: {
-            ...p.logs,
-            [today]: newDaily
-          }
-        };
-      }
-      return p;
-    }));
-  }, [activeProjectId, history, historyIndex, projects]);
+  }, [activeProjectId]);
 
   const handleReset = useCallback(() => {
     const today = getTodayString();
     
-    updateProjectsWithHistory(prev => prev.map(p => {
+    setProjects(prev => prev.map(p => {
       if (p.id === activeProjectId) {
         return { ...p, count: 0, lastActiveDate: today };
       }
       return p;
     }));
     setShowResetConfirm(false);
-  }, [activeProjectId, history, historyIndex, projects]);
+  }, [activeProjectId]);
 
   const handleFactoryReset = () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -393,8 +323,6 @@ const App: React.FC = () => {
     setProjects([newDefault]);
     setActiveProjectId(newDefault.id);
     setRecentNames([]);
-    setHistory([]);
-    setHistoryIndex(-1);
     setShowFactoryResetConfirm(false);
     setShowProjectMenu(false);
     alert("已恢復出廠設定，所有資料已清除。");
@@ -407,18 +335,45 @@ const App: React.FC = () => {
     const trimmedName = newProjectName.trim();
     if (!trimmedName) return;
 
-    const newProject: Project = {
-      id: generateId(),
-      name: trimmedName,
-      count: 0,
-      logs: {},
-      createdAt: Date.now(),
-      lastActiveDate: getTodayString()
-    };
+    const today = getTodayString();
 
-    updateProjectsWithHistory(prev => [...prev, newProject]);
-    setActiveProjectId(newProject.id);
+    // Check if a project with this name ALREADY exists BUT is archived (not today)
+    // If it exists and IS today, we treat it as the user wanting a DUPLICATE (e.g. "Round 2"), so we create new.
+    // If it exists and IS NOT today, we Revive it.
+    const archivedProject = projects.find(p => 
+      p.name.trim().toLowerCase() === trimmedName.toLowerCase() && 
+      p.lastActiveDate !== today
+    );
+
+    if (archivedProject) {
+      // Revive/Reactivate existing project from history
+      setProjects(prev => prev.map(p => {
+        if (p.id === archivedProject.id) {
+          return {
+            ...p,
+            lastActiveDate: today,
+            // If reviving, start at 0
+            count: 0
+          };
+        }
+        return p;
+      }));
+      setActiveProjectId(archivedProject.id);
+    } else {
+      // Create New (Brand new, OR a duplicate for today)
+      const newProject: Project = {
+        id: generateId(),
+        name: trimmedName,
+        count: 0,
+        logs: {},
+        createdAt: Date.now(),
+        lastActiveDate: today
+      };
+      setProjects(prev => [...prev, newProject]);
+      setActiveProjectId(newProject.id);
+    }
     
+    // Update Recents
     const updatedRecents = [trimmedName, ...recentNames.filter(n => n !== trimmedName)].slice(0, 10);
     setRecentNames(updatedRecents);
     localStorage.setItem(RECENT_NAMES_KEY, JSON.stringify(updatedRecents));
@@ -429,10 +384,21 @@ const App: React.FC = () => {
 
   const requestDeleteProject = (p: Project, e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    // Check if project has history (logs other than today)
+    const today = getTodayString();
+    const logDates = Object.keys(p.logs);
+    // It has history if there are any logs NOT from today, OR if there are logs from today but user wants to "remove from view" (we treat it as archiving)
+    // Actually, simple check: does it have ANY logs ever?
+    // If it has logs, we "Archive" (Soft Delete). If logs are empty, we "Delete" (Hard Delete).
+    // Better logic: Does it have logs OLDER than today? 
+    const hasHistory = logDates.some(date => date !== today && p.logs[date] > 0);
+
     setDeleteTarget({
       type: 'project',
       projectId: p.id,
-      name: p.name
+      name: p.name,
+      hasHistory: hasHistory
     });
   };
 
@@ -446,7 +412,7 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (editingProjectId && editingNameValue.trim()) {
       const today = getTodayString();
-      updateProjectsWithHistory(prev => prev.map(p => 
+      setProjects(prev => prev.map(p => 
         p.id === editingProjectId ? { ...p, name: editingNameValue.trim(), lastActiveDate: today } : p
       ));
     }
@@ -492,33 +458,74 @@ const App: React.FC = () => {
   const executeDelete = () => {
     if (!deleteTarget) return;
 
-    // Use updateProjectsWithHistory to wrap the delete action
-    const currentHistory = history.slice(0, historyIndex + 1);
-    currentHistory.push(projects);
-    if (currentHistory.length > 20) currentHistory.shift();
-    setHistory(currentHistory);
-    setHistoryIndex(currentHistory.length - 1);
+    const today = getTodayString();
 
     if (deleteTarget.type === 'project') {
       const id = deleteTarget.projectId;
-      const remaining = projects.filter(p => p.id !== id);
-      const today = getTodayString();
       
-      if (remaining.length === 0) {
-        const newDefault: Project = {
-          id: generateId(),
-          name: '新項目 (New Item)',
-          count: 0,
-          logs: {},
-          createdAt: Date.now(),
-          lastActiveDate: today
-        };
-        setProjects([newDefault]);
-        setActiveProjectId(newDefault.id);
-      } else {
-        setProjects(remaining);
+      if (deleteTarget.hasHistory) {
+        // SOFT DELETE (Archive)
+        // 1. Remove today's specific logs (optional, but cleaner if "removing from today")
+        // 2. Set lastActiveDate to old date
+        // 3. Reset count
+        setProjects(prev => prev.map(p => {
+          if (p.id === id) {
+             const newLogs = { ...p.logs };
+             delete newLogs[today]; // Clean up today's partial data so it doesn't look like a 0-day or partial day in stats if user didn't want it
+
+             return {
+               ...p,
+               count: 0,
+               lastActiveDate: 'ARCHIVED', // Sets it out of 'today' scope
+               logs: newLogs
+             };
+          }
+          return p;
+        }));
+
+        // Switch active project if the current one was archived
         if (activeProjectId === id) {
-          setActiveProjectId(remaining[0].id);
+          // Find another visible project
+          const remainingVisible = projects.filter(p => p.id !== id && p.lastActiveDate === today);
+          if (remainingVisible.length > 0) {
+            setActiveProjectId(remainingVisible[0].id);
+          } else {
+             // Create default if list empty
+             const newDefault: Project = {
+              id: generateId(),
+              name: '默認計數 (Default)',
+              count: 0,
+              logs: {},
+              createdAt: Date.now(),
+              lastActiveDate: today
+            };
+            setProjects(prev => [...prev, newDefault]);
+            setActiveProjectId(newDefault.id);
+          }
+        }
+
+      } else {
+        // HARD DELETE (Permanent)
+        const remaining = projects.filter(p => p.id !== id);
+        
+        if (remaining.length === 0) {
+          const newDefault: Project = {
+            id: generateId(),
+            name: '新項目 (New Item)',
+            count: 0,
+            logs: {},
+            createdAt: Date.now(),
+            lastActiveDate: today
+          };
+          setProjects([newDefault]);
+          setActiveProjectId(newDefault.id);
+        } else {
+          setProjects(remaining);
+          if (activeProjectId === id) {
+            // Try to find a project for today, otherwise just the first one
+            const nextVisible = remaining.find(p => p.lastActiveDate === today) || remaining[0];
+            setActiveProjectId(nextVisible.id);
+          }
         }
       }
     } else if (deleteTarget.type === 'log') {
@@ -631,26 +638,6 @@ const App: React.FC = () => {
         </button>
         
         <div className="flex gap-2">
-           {/* Undo/Redo Group */}
-          <div className="flex mr-2 bg-slate-800/80 rounded-full border border-slate-700 backdrop-blur-sm shadow-lg shadow-black/20">
-            <button 
-              onClick={handleUndo}
-              disabled={historyIndex < 0}
-              className="p-3 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-l-full border-r border-slate-700"
-              aria-label="Undo"
-            >
-              <Undo2 size={20} />
-            </button>
-            <button 
-              onClick={handleRedo}
-              disabled={historyIndex >= history.length - 1} // No redo available if at latest state
-              className="p-3 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-r-full"
-              aria-label="Redo"
-            >
-              <Redo2 size={20} />
-            </button>
-          </div>
-
           {/* Stats Button */}
           <button 
             onClick={() => setShowStats(true)}
@@ -688,20 +675,8 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Action Buttons Row */}
-        <div className="w-full flex items-center justify-center gap-8 mb-4">
-           {/* Minus Button */}
-           <button 
-            onClick={handleDecrement}
-            className="p-5 rounded-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700 active:bg-slate-800 shadow-xl"
-            aria-label="Decrease"
-          >
-            <Minus size={28} />
-          </button>
-        </div>
-
         {/* The Big Button */}
-        <div className="w-full flex-none flex items-center justify-center pb-8">
+        <div className="w-full flex-none flex items-center justify-center pb-8 mt-12">
           <button
             onClick={handleIncrement}
             className={`
@@ -1147,22 +1122,44 @@ const App: React.FC = () => {
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <div className="flex items-center gap-4 mb-4 text-rose-500">
               <div className="p-3 bg-rose-500/10 rounded-2xl">
-                <AlertTriangle size={24} />
+                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? (
+                   <Archive size={24} className="text-indigo-400" />
+                ) : (
+                   <AlertTriangle size={24} />
+                )}
               </div>
               <h2 className="text-xl font-bold text-white">
-                {deleteTarget.type === 'project' ? '刪除項目' : '刪除紀錄'}
+                {deleteTarget.type === 'project' 
+                  ? (deleteTarget.hasHistory ? '封存今日項目' : '刪除項目') 
+                  : '刪除紀錄'}
               </h2>
             </div>
             
             <div className="text-slate-400 mb-8 leading-relaxed">
               {deleteTarget.type === 'project' ? (
-                <>
-                  確定要刪除 "<span className="text-white font-bold">{deleteTarget.name}</span>" 嗎？
-                  <div className="mt-3 p-3 bg-rose-900/20 border border-rose-900/30 rounded-xl text-xs text-rose-300 font-medium">
-                    ⚠️ 此動作將永久刪除該項目及其所有歷史紀錄，無法復原。
-                  </div>
-                </>
+                deleteTarget.hasHistory ? (
+                  // Soft Delete Message
+                  <>
+                    確定要將 "<span className="text-white font-bold">{deleteTarget.name}</span>" 從今日列表移除嗎？
+                    <div className="mt-3 p-3 bg-slate-800/80 border border-indigo-500/30 rounded-xl text-xs text-slate-300 font-medium flex items-start gap-2">
+                       <Check size={14} className="text-indigo-400 mt-0.5" />
+                       <div>
+                        過去的統計資料將會<span className="text-white font-bold">完整保留</span>。
+                        <br/><span className="text-slate-500">下次輸入相同名稱即可找回此項目。</span>
+                       </div>
+                    </div>
+                  </>
+                ) : (
+                  // Hard Delete Message
+                  <>
+                    確定要刪除 "<span className="text-white font-bold">{deleteTarget.name}</span>" 嗎？
+                    <div className="mt-3 p-3 bg-rose-900/20 border border-rose-900/30 rounded-xl text-xs text-rose-300 font-medium">
+                      ⚠️ 此項目無歷史紀錄，將會被永久刪除。
+                    </div>
+                  </>
+                )
               ) : (
+                // Log Delete Message
                 <>
                   確定要刪除此筆歷史紀錄嗎？
                   <div className="mt-2 text-xs text-slate-500">僅刪除當日的計數紀錄。</div>
@@ -1179,9 +1176,13 @@ const App: React.FC = () => {
               </button>
               <button 
                 onClick={executeDelete}
-                className="flex-1 py-3.5 px-4 rounded-xl font-bold bg-rose-600 text-white hover:bg-rose-500 shadow-lg shadow-rose-900/20 transition-colors"
+                className={`flex-1 py-3.5 px-4 rounded-xl font-bold text-white shadow-lg transition-colors
+                  ${deleteTarget.type === 'project' && deleteTarget.hasHistory 
+                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20' 
+                    : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/20'
+                  }`}
               >
-                確認刪除
+                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? '確認移除' : '確認刪除'}
               </button>
             </div>
           </div>
