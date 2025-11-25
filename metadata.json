@@ -1,0 +1,5 @@
+{
+  "name": "DailyCounter",
+  "description": "A high-contrast, large-button counter application with auto-save functionality.",
+  "requestFramePermissions": []
+}
