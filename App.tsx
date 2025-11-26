@@ -207,6 +207,7 @@ const App: React.FC = () => {
       return getSixMonthsAgoString();
     }
   });
+  const [showDateSettings, setShowDateSettings] = useState(false);
 
   // Manual Log State
   const [showManualLog, setShowManualLog] = useState(false);
@@ -225,7 +226,7 @@ const App: React.FC = () => {
     type: 'project' | 'log', 
     projectId: string, 
     date?: string, 
-    name?: string,
+    name?: string, 
     hasHistory?: boolean 
   } | null>(null);
 
@@ -867,28 +868,18 @@ const App: React.FC = () => {
       {showStats && (
         <div className="absolute inset-0 z-50 bg-slate-950 flex flex-col animate-in slide-in-from-bottom duration-300">
            <div className="p-5 flex items-center justify-between border-b border-slate-800 bg-slate-900/50">
-            <h2 className="text-xl font-bold text-white flex items-center gap-3">
-              <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
-                <BarChart3 size={20} />
-              </div>
-              統計紀錄
-            </h2>
+             <div className="flex items-center gap-3">
+               <button 
+                 onClick={() => setShowDateSettings(true)}
+                 className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 hover:bg-indigo-500/30 transition-colors active:scale-95"
+                 title="設定統計起始日"
+               >
+                 <CalendarRange size={20} />
+               </button>
+               <h2 className="text-xl font-bold text-white">統計紀錄</h2>
+             </div>
             
             <div className="flex items-center gap-3">
-                <div className="relative">
-                   <button className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors">
-                      <CalendarRange size={20} />
-                   </button>
-                   <input 
-                      type="date"
-                      max={getTodayString()}
-                      value={statsStartDate}
-                      onChange={handleStatsDateChange}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      title="設定統計起始日"
-                    />
-                </div>
-
                 <button
                     onClick={() => {
                         setShowStats(false);
@@ -1043,6 +1034,43 @@ const App: React.FC = () => {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* --- Date Settings Modal --- */}
+      {showDateSettings && (
+        <div className="absolute inset-0 z-[80] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+             <div className="flex items-center gap-4 mb-6 text-indigo-400">
+               <div className="p-3 bg-indigo-500/10 rounded-2xl">
+                 <CalendarRange size={24} />
+               </div>
+               <h2 className="text-xl font-bold text-white">設定統計起始日</h2>
+             </div>
+             
+             <div className="space-y-4 mb-8">
+               <div className="space-y-2">
+                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">選擇日期</label>
+                 <input
+                   type="date"
+                   max={getTodayString()}
+                   value={statsStartDate}
+                   onChange={handleStatsDateChange}
+                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-4 text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors [color-scheme:dark]"
+                 />
+               </div>
+               <p className="text-xs text-slate-500 leading-relaxed">
+                 統計數據將從此日期開始計算，早於此日期的紀錄將不會顯示在統計列表中。
+               </p>
+             </div>
+
+             <button
+               onClick={() => setShowDateSettings(false)}
+               className="w-full py-3.5 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-900/20 transition-colors"
+             >
+               確定
+             </button>
+           </div>
         </div>
       )}
 
