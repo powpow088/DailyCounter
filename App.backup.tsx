@@ -580,6 +580,7 @@ const App: React.FC = () => {
     }));
 
     setShowManualLog(false);
+    setShowStats(true); // Return to stats modal
     setManualLogCount('');
     setManualLogDate(getTodayString());
   };
@@ -1090,7 +1091,10 @@ const App: React.FC = () => {
               補填/修改紀錄
             </h2>
             <button 
-              onClick={() => setShowManualLog(false)}
+              onClick={() => {
+                setShowManualLog(false);
+                setShowStats(true); // Return to stats modal
+              }}
               className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
             >
               <X size={20} />
