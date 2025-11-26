@@ -21,9 +21,8 @@ import {
   Trash,
   Archive,
   CalendarPlus,
-  CheckCircle2,
-  Circle,
-  CalendarRange
+  CalendarRange,
+  ChevronDown
 } from 'lucide-react';
 
 // --- Types ---
@@ -522,7 +521,7 @@ const App: React.FC = () => {
 
   // --- Manual Log Logic ---
 
-  // Get unique projects for selector, sorted by newest first
+  // Get unique projects for selector, sorted by newest first, limited to 10
   const uniqueProjectsForSelector = useMemo(() => {
     // 1. Sort all projects by creation date (newest first)
     const sorted = [...projects].sort((a, b) => b.createdAt - a.createdAt);
@@ -538,12 +537,17 @@ const App: React.FC = () => {
         unique.push(p);
       }
     }
-    return unique;
+    // 3. Limit to top 10
+    return unique.slice(0, 10);
   }, [projects]);
 
   useEffect(() => {
-    if (showManualLog && uniqueProjectsForSelector.length > 0 && !manualLogProjectId) {
-      setManualLogProjectId(uniqueProjectsForSelector[0].id);
+    if (showManualLog && uniqueProjectsForSelector.length > 0) {
+      // Check if current selection is still in the top 10 list
+      const isInList = uniqueProjectsForSelector.some(p => p.id === manualLogProjectId);
+      if (!manualLogProjectId || !isInList) {
+        setManualLogProjectId(uniqueProjectsForSelector[0].id);
+      }
     }
   }, [showManualLog, uniqueProjectsForSelector, manualLogProjectId]);
 
@@ -1074,7 +1078,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- Manual Log Modal (Custom Radio List) --- */}
+      {/* --- Manual Log Modal (Dropdown Style) --- */}
       {showManualLog && (
         <div className="absolute inset-0 z-[60] bg-slate-950 flex flex-col animate-in slide-in-from-bottom duration-300">
            {/* Header */}
@@ -1095,36 +1099,28 @@ const App: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             
-            {/* Project List (Radio Style) */}
+            {/* Project Selector (Dropdown) */}
             <div className="space-y-3">
               <label className="text-sm font-bold text-slate-400 ml-1 uppercase tracking-wider">選擇項目</label>
-              <div className="grid gap-3">
-                {uniqueProjectsForSelector.map(p => {
-                    const isSelected = manualLogProjectId === p.id;
-                    return (
-                        <div 
-                            key={p.id}
-                            onClick={() => setManualLogProjectId(p.id)}
-                            className={`
-                                relative p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between
-                                ${isSelected 
-                                    ? 'bg-indigo-900/20 border-indigo-500 shadow-lg shadow-indigo-500/10' 
-                                    : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
-                                }
-                            `}
-                        >
-                            <span className={`font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                                {p.name}
-                            </span>
-                            {isSelected ? (
-                                <CheckCircle2 className="text-indigo-400" size={20} />
-                            ) : (
-                                <Circle className="text-slate-600" size={20} />
-                            )}
-                        </div>
-                    );
-                })}
+              <div className="relative">
+                  <select
+                    value={manualLogProjectId}
+                    onChange={(e) => setManualLogProjectId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors appearance-none"
+                  >
+                    {uniqueProjectsForSelector.map(p => (
+                        <option key={p.id} value={p.id} className="bg-slate-900 text-white">
+                            {p.name}
+                        </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                    <ChevronDown size={16} />
+                  </div>
               </div>
+              <p className="text-[10px] text-slate-500 text-right">
+                  僅顯示最近建立的 10 個項目
+              </p>
             </div>
 
             {/* Date Input */}
