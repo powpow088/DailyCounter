@@ -19,7 +19,10 @@ import {
   Trophy,
   Filter,
   Trash,
-  Archive
+  Archive,
+  CalendarPlus,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 
 // --- Types ---
@@ -54,10 +57,9 @@ const getTodayString = () => {
 
 const formatDateDisplay = (dateStr: string) => {
   const today = getTodayString();
-  const date = new Date(dateStr);
-  
   if (dateStr === today) return '今天 (Today)';
   
+  const date = new Date(dateStr);
   return new Intl.DateTimeFormat('zh-TW', { 
     weekday: 'short', 
     year: 'numeric', 
@@ -86,7 +88,6 @@ const App: React.FC = () => {
       if (!saved) {
         const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
         if (legacyData) {
-          console.log("Migrating data from legacy storage...");
           saved = legacyData;
         }
       }
@@ -140,25 +141,19 @@ const App: React.FC = () => {
       }
 
       // 2. Smart Carryover Logic
-      // Check if we have any projects for 'today'
       const hasProjectsForToday = loadedProjects.some(p => p.lastActiveDate === todayStr);
 
       if (!hasProjectsForToday) {
-        // If today is empty, find the most recent active date from history
         const allDates = new Set<string>();
         loadedProjects.forEach(p => Object.keys(p.logs).forEach(d => allDates.add(d)));
-        loadedProjects.forEach(p => allDates.add(p.lastActiveDate)); // Also check lastActiveDate itself
+        loadedProjects.forEach(p => allDates.add(p.lastActiveDate));
         
-        // Sort descending to find latest
         const sortedDates = Array.from(allDates).sort().reverse();
         const latestDate = sortedDates.find(d => d < todayStr);
 
         if (latestDate) {
-          // Bring forward projects from the latest date to today
           loadedProjects = loadedProjects.map(p => {
-            // If project was active on the latest date, move it to today's list
             if (p.lastActiveDate === latestDate || (p.logs[latestDate] || 0) > 0) {
-              // RESET COUNT TO 0 FOR NEW DAY, but keep logs history
               return { ...p, count: 0, lastActiveDate: todayStr };
             }
             return p;
@@ -184,9 +179,7 @@ const App: React.FC = () => {
   const [recentNames, setRecentNames] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(RECENT_NAMES_KEY);
-      if (saved) {
-        return JSON.parse(saved);
-      }
+      if (saved) return JSON.parse(saved);
       return [];
     } catch (e) {
       return [];
@@ -206,6 +199,12 @@ const App: React.FC = () => {
   const [showStats, setShowStats] = useState(false);
   const [statsView, setStatsView] = useState<'overview' | 'history'>('overview');
 
+  // Manual Log State
+  const [showManualLog, setShowManualLog] = useState(false);
+  const [manualLogDate, setManualLogDate] = useState(getTodayString());
+  const [manualLogCount, setManualLogCount] = useState('');
+  const [manualLogProjectId, setManualLogProjectId] = useState<string>('');
+
   const [newProjectName, setNewProjectName] = useState('');
 
   // Editing state
@@ -218,7 +217,7 @@ const App: React.FC = () => {
     projectId: string, 
     date?: string, 
     name?: string,
-    hasHistory?: boolean // To distinguish between soft delete and hard delete
+    hasHistory?: boolean 
   } | null>(null);
 
   // --- Derived State ---
@@ -226,17 +225,14 @@ const App: React.FC = () => {
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
 
   useEffect(() => {
-    // Safety check: if active project is deleted or doesn't exist, switch to first available visible project
     if (!activeProject) {
       const today = getTodayString();
       const visible = projects.find(p => p.lastActiveDate === today);
       if (visible) {
         setActiveProjectId(visible.id);
       } else if (projects.length > 0) {
-        // Fallback to any project if no today project
         setActiveProjectId(projects[0].id);
       } else {
-        // Create default if absolutely nothing exists
         const newDefault: Project = {
           id: generateId(),
           name: '默認計數 (Default)',
@@ -251,7 +247,7 @@ const App: React.FC = () => {
     }
   }, [activeProject, projects]);
 
-  // Seed recent names from existing projects if empty
+  // Seed recent names
   useEffect(() => {
     if (recentNames.length === 0 && projects.length > 0) {
       const existingNames = Array.from(new Set(projects.map(p => p.name.trim()))).slice(0, 10);
@@ -295,7 +291,6 @@ const App: React.FC = () => {
 
   const handleReset = useCallback(() => {
     const today = getTodayString();
-    
     setProjects(prev => prev.map(p => {
       if (p.id === activeProjectId) {
         return { ...p, count: 0, lastActiveDate: today };
@@ -328,31 +323,23 @@ const App: React.FC = () => {
     alert("已恢復出廠設定，所有資料已清除。");
   };
 
-  // Project Management
-
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedName = newProjectName.trim();
     if (!trimmedName) return;
 
     const today = getTodayString();
-
-    // Check if a project with this name ALREADY exists BUT is archived (not today)
-    // If it exists and IS today, we treat it as the user wanting a DUPLICATE (e.g. "Round 2"), so we create new.
-    // If it exists and IS NOT today, we Revive it.
     const archivedProject = projects.find(p => 
       p.name.trim().toLowerCase() === trimmedName.toLowerCase() && 
       p.lastActiveDate !== today
     );
 
     if (archivedProject) {
-      // Revive/Reactivate existing project from history
       setProjects(prev => prev.map(p => {
         if (p.id === archivedProject.id) {
           return {
             ...p,
             lastActiveDate: today,
-            // If reviving, start at 0
             count: 0
           };
         }
@@ -360,7 +347,6 @@ const App: React.FC = () => {
       }));
       setActiveProjectId(archivedProject.id);
     } else {
-      // Create New (Brand new, OR a duplicate for today)
       const newProject: Project = {
         id: generateId(),
         name: trimmedName,
@@ -373,7 +359,6 @@ const App: React.FC = () => {
       setActiveProjectId(newProject.id);
     }
     
-    // Update Recents
     const updatedRecents = [trimmedName, ...recentNames.filter(n => n !== trimmedName)].slice(0, 10);
     setRecentNames(updatedRecents);
     localStorage.setItem(RECENT_NAMES_KEY, JSON.stringify(updatedRecents));
@@ -384,14 +369,8 @@ const App: React.FC = () => {
 
   const requestDeleteProject = (p: Project, e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // Check if project has history (logs other than today)
     const today = getTodayString();
     const logDates = Object.keys(p.logs);
-    // It has history if there are any logs NOT from today, OR if there are logs from today but user wants to "remove from view" (we treat it as archiving)
-    // Actually, simple check: does it have ANY logs ever?
-    // If it has logs, we "Archive" (Soft Delete). If logs are empty, we "Delete" (Hard Delete).
-    // Better logic: Does it have logs OLDER than today? 
     const hasHistory = logDates.some(date => date !== today && p.logs[date] > 0);
 
     setDeleteTarget({
@@ -426,7 +405,6 @@ const App: React.FC = () => {
     setEditingNameValue('');
   };
 
-  // Filter Projects for List
   const visibleProjects = useMemo(() => {
     const todayStr = getTodayString();
     const sorter = (a: Project, b: Project) => {
@@ -442,9 +420,6 @@ const App: React.FC = () => {
     }).sort(sorter);
 
   }, [projects, activeProjectId]);
-
-
-  // Stats Management
 
   const requestDeleteLog = (projectId: string, date: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -464,33 +439,25 @@ const App: React.FC = () => {
       const id = deleteTarget.projectId;
       
       if (deleteTarget.hasHistory) {
-        // SOFT DELETE (Archive)
-        // 1. Remove today's specific logs (optional, but cleaner if "removing from today")
-        // 2. Set lastActiveDate to old date
-        // 3. Reset count
         setProjects(prev => prev.map(p => {
           if (p.id === id) {
              const newLogs = { ...p.logs };
-             delete newLogs[today]; // Clean up today's partial data so it doesn't look like a 0-day or partial day in stats if user didn't want it
-
+             delete newLogs[today]; 
              return {
                ...p,
                count: 0,
-               lastActiveDate: 'ARCHIVED', // Sets it out of 'today' scope
+               lastActiveDate: 'ARCHIVED',
                logs: newLogs
              };
           }
           return p;
         }));
 
-        // Switch active project if the current one was archived
         if (activeProjectId === id) {
-          // Find another visible project
           const remainingVisible = projects.filter(p => p.id !== id && p.lastActiveDate === today);
           if (remainingVisible.length > 0) {
             setActiveProjectId(remainingVisible[0].id);
           } else {
-             // Create default if list empty
              const newDefault: Project = {
               id: generateId(),
               name: '默認計數 (Default)',
@@ -505,9 +472,7 @@ const App: React.FC = () => {
         }
 
       } else {
-        // HARD DELETE (Permanent)
         const remaining = projects.filter(p => p.id !== id);
-        
         if (remaining.length === 0) {
           const newDefault: Project = {
             id: generateId(),
@@ -522,7 +487,6 @@ const App: React.FC = () => {
         } else {
           setProjects(remaining);
           if (activeProjectId === id) {
-            // Try to find a project for today, otherwise just the first one
             const nextVisible = remaining.find(p => p.lastActiveDate === today) || remaining[0];
             setActiveProjectId(nextVisible.id);
           }
@@ -544,6 +508,74 @@ const App: React.FC = () => {
     setDeleteTarget(null);
   };
 
+  // --- Manual Log Logic ---
+
+  // Get unique projects for selector, sorted by newest first
+  const uniqueProjectsForSelector = useMemo(() => {
+    // 1. Sort all projects by creation date (newest first)
+    // Assuming 'id' generated by generateId() isn't strictly time-based, relying on createdAt
+    const sorted = [...projects].sort((a, b) => b.createdAt - a.createdAt);
+    
+    // 2. Filter unique names
+    const seen = new Set<string>();
+    const unique: Project[] = [];
+    
+    for (const p of sorted) {
+      const normalized = p.name.trim();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        unique.push(p);
+      }
+    }
+    return unique;
+  }, [projects]);
+
+  useEffect(() => {
+    if (showManualLog && uniqueProjectsForSelector.length > 0 && !manualLogProjectId) {
+      setManualLogProjectId(uniqueProjectsForSelector[0].id);
+    }
+  }, [showManualLog, uniqueProjectsForSelector, manualLogProjectId]);
+
+  const handleManualLogSubmit = () => {
+    if (!manualLogProjectId || !manualLogCount) return;
+    const count = parseInt(manualLogCount, 10);
+    if (isNaN(count)) return;
+
+    const today = getTodayString();
+    
+    // Check if we need to create a new project (if user revived a unique name that is effectively a new ID in this context, 
+    // but here we are selecting by ID so we find the target project)
+    
+    setProjects(prev => prev.map(p => {
+      // We match by ID. If there are duplicates in the system, user selected one specific ID.
+      // However, usually we want to log to the "Concept" of the project.
+      // But keeping it simple: Log to the specific project ID selected.
+      if (p.id === manualLogProjectId) {
+        const newLogs = { ...p.logs };
+        if (count === 0) {
+          delete newLogs[manualLogDate];
+        } else {
+          newLogs[manualLogDate] = count;
+        }
+        
+        // If date is today, also update visual count
+        const isToday = manualLogDate === today;
+        return {
+          ...p,
+          logs: newLogs,
+          count: isToday ? count : p.count,
+          lastActiveDate: isToday ? today : p.lastActiveDate
+        };
+      }
+      return p;
+    }));
+
+    setShowManualLog(false);
+    setManualLogCount('');
+    setManualLogDate(getTodayString());
+  };
+
+
   // --- Stats Calculation ---
   
   const sixMonthsAgoStr = useMemo(() => getSixMonthsAgoString(), []);
@@ -553,11 +585,9 @@ const App: React.FC = () => {
 
     projects.forEach(p => {
       const normalizedName = p.name.trim(); 
-      
       if (!statsByName[normalizedName]) {
         statsByName[normalizedName] = { total: 0, occurrences: 0 };
       }
-
       Object.entries(p.logs).forEach(([date, count]) => {
         if (date >= sixMonthsAgoStr && (count as number) > 0) {
           statsByName[normalizedName].total += (count as number);
@@ -598,7 +628,6 @@ const App: React.FC = () => {
         }));
       
       const totalForDay = items.reduce((sum, item) => sum + item.count, 0);
-
       if (totalForDay === 0 && items.length === 0) return null;
 
       return {
@@ -613,13 +642,11 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-full flex flex-col bg-slate-950 relative selection:bg-indigo-500 selection:text-white overflow-hidden text-slate-100 font-sans">
       
-      {/* Background Gradient & Pattern */}
+      {/* Background */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(79,70,229,0.15),rgba(15,23,42,0)_50%)] z-0 pointer-events-none"></div>
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] z-0 pointer-events-none"></div>
 
       {/* Header */}
       <header className="relative z-10 w-full p-4 pt-6 flex justify-between items-start">
-        {/* Project Selector Trigger */}
         <button 
           onClick={() => setShowProjectMenu(true)}
           className="group flex flex-col items-start outline-none"
@@ -638,20 +665,15 @@ const App: React.FC = () => {
         </button>
         
         <div className="flex gap-2">
-          {/* Stats Button */}
           <button 
             onClick={() => setShowStats(true)}
             className="p-3 rounded-full bg-slate-800/80 hover:bg-indigo-900/40 text-slate-300 hover:text-indigo-300 transition-all border border-slate-700 hover:border-indigo-500/30 backdrop-blur-sm shadow-lg shadow-black/20"
-            aria-label="Statistics"
           >
             <BarChart3 size={20} />
           </button>
-
-          {/* Reset Button */}
           <button 
             onClick={() => setShowResetConfirm(true)}
             className="p-3 rounded-full bg-slate-800/80 hover:bg-rose-900/20 text-slate-300 hover:text-rose-400 transition-all border border-slate-700 hover:border-rose-500/30 backdrop-blur-sm shadow-lg shadow-black/20"
-            aria-label="Reset"
           >
             <RotateCcw size={20} />
           </button>
@@ -660,11 +682,7 @@ const App: React.FC = () => {
 
       {/* Main Display Area */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center w-full max-w-md mx-auto px-6 pb-12 gap-8">
-        
-        {/* Number Display */}
-        <div className={`
-          flex flex-col items-center justify-center w-full mt-auto mb-auto
-        `}>
+        <div className="flex flex-col items-center justify-center w-full mt-auto mb-auto">
           <div className={`
             font-sans tabular-nums font-bold text-white
             select-none leading-none tracking-tighter
@@ -675,7 +693,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* The Big Button */}
         <div className="w-full flex-none flex items-center justify-center pb-8 mt-12">
           <button
             onClick={handleIncrement}
@@ -692,20 +709,13 @@ const App: React.FC = () => {
               }
             `}
           >
-            {/* Button Inner Glow/Gradient */}
             <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 to-transparent pointer-events-none"></div>
-            
-            {/* Icon */}
-            <Plus 
-              size={88} 
-              strokeWidth={3}
-              className="text-white drop-shadow-md"
-            />
+            <Plus size={88} strokeWidth={3} className="text-white drop-shadow-md" />
           </button>
         </div>
       </main>
 
-      {/* --- Project Menu Modal (Drawer style) --- */}
+      {/* --- Project Menu Modal --- */}
       {showProjectMenu && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex flex-col animate-in fade-in slide-in-from-bottom-5 duration-300">
           <div className="p-5 flex items-center justify-between border-b border-slate-800 bg-slate-900/50">
@@ -716,16 +726,13 @@ const App: React.FC = () => {
               今日項目 (Today)
             </h2>
             <button 
-              onClick={() => {
-                setShowProjectMenu(false);
-              }}
+              onClick={() => setShowProjectMenu(false)}
               className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
             >
               <X size={20} />
             </button>
           </div>
 
-          {/* List Content */}
           <div className="flex-1 overflow-y-auto p-5 space-y-3">
             {visibleProjects.length === 0 && (
               <div className="text-center py-10 animate-in fade-in zoom-in-95 duration-300">
@@ -757,10 +764,7 @@ const App: React.FC = () => {
               >
                 <div className="flex-1 mr-4">
                   {editingProjectId === p.id ? (
-                    <div 
-                      className="flex items-center gap-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <input 
                         type="text" 
                         value={editingNameValue}
@@ -784,33 +788,20 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-1">
                   {editingProjectId === p.id ? (
                     <>
-                      <button 
-                        onClick={saveEditingProject}
-                        className="p-2 bg-indigo-600 rounded-lg text-white hover:bg-indigo-500 shadow-lg shadow-indigo-900/20"
-                      >
+                      <button onClick={saveEditingProject} className="p-2 bg-indigo-600 rounded-lg text-white hover:bg-indigo-500 shadow-lg shadow-indigo-900/20">
                         <Save size={18} />
                       </button>
-                      <button 
-                        onClick={cancelEditingProject}
-                        className="p-2 bg-slate-700 rounded-lg text-slate-300 hover:bg-slate-600"
-                      >
+                      <button onClick={cancelEditingProject} className="p-2 bg-slate-700 rounded-lg text-slate-300 hover:bg-slate-600">
                         <X size={18} />
                       </button>
                     </>
                   ) : (
                     <>
                       {activeProjectId === p.id && <Check size={20} className="text-indigo-400 mr-3" />}
-                      
-                      <button 
-                          onClick={(e) => startEditingProject(p, e)}
-                          className="p-2 hover:bg-slate-700/80 rounded-lg text-slate-500 hover:text-indigo-300 transition-colors"
-                      >
+                      <button onClick={(e) => startEditingProject(p, e)} className="p-2 hover:bg-slate-700/80 rounded-lg text-slate-500 hover:text-indigo-300 transition-colors">
                           <Pencil size={18} />
                       </button>
-                      <button 
-                          onClick={(e) => requestDeleteProject(p, e)}
-                          className="p-2 hover:bg-rose-900/30 rounded-lg text-slate-500 hover:text-rose-400 transition-colors"
-                      >
+                      <button onClick={(e) => requestDeleteProject(p, e)} className="p-2 hover:bg-rose-900/30 rounded-lg text-slate-500 hover:text-rose-400 transition-colors">
                           <Trash2 size={18} />
                       </button>
                     </>
@@ -819,18 +810,12 @@ const App: React.FC = () => {
               </div>
             ))}
              
-             {/* Factory Reset Button */}
-             <button 
-                onClick={() => setShowFactoryResetConfirm(true)}
-                className="w-full py-4 text-xs text-rose-800 hover:text-rose-500 flex items-center justify-center gap-2 transition-colors mt-8"
-             >
-                <Trash size={12} />
-                ⚠️ 清除所有資料 (Clear All Data)
+             <button onClick={() => setShowFactoryResetConfirm(true)} className="w-full py-4 text-xs text-rose-800 hover:text-rose-500 flex items-center justify-center gap-2 transition-colors mt-8">
+                <Trash size={12} /> ⚠️ 清除所有資料 (Clear All Data)
              </button>
           </div>
 
           <div className="p-5 border-t border-slate-800 bg-slate-900 pb-8 flex flex-col gap-5 shadow-[0_-10px_40px_rgba(0,0,0,0.3)] z-10">
-            {/* New Project Input */}
             <form onSubmit={handleCreateProject} className="flex gap-3">
               <input
                 type="text"
@@ -848,7 +833,6 @@ const App: React.FC = () => {
               </button>
             </form>
 
-            {/* Recent Names Chips */}
             {recentNames.length > 0 && (
               <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="flex items-center gap-2 mb-3 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
@@ -871,10 +855,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- Statistics Modal --- */}
+      {/* --- Stats Modal --- */}
       {showStats && (
         <div className="absolute inset-0 z-50 bg-slate-950 flex flex-col animate-in slide-in-from-bottom duration-300">
-           {/* Header */}
            <div className="p-5 flex items-center justify-between border-b border-slate-800 bg-slate-900/50">
             <h2 className="text-xl font-bold text-white flex items-center gap-3">
               <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
@@ -882,15 +865,27 @@ const App: React.FC = () => {
               </div>
               統計紀錄
             </h2>
-            <button 
-              onClick={() => setShowStats(false)}
-              className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
-            >
-              <X size={20} />
-            </button>
+            
+            <div className="flex items-center gap-3">
+                <button
+                    onClick={() => {
+                        setShowStats(false);
+                        setShowManualLog(true);
+                    }}
+                    className="flex items-center gap-2 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white px-3 py-2 rounded-lg font-bold transition-all border border-indigo-500/20 text-xs sm:text-sm"
+                >
+                    <CalendarPlus size={16} />
+                    補填紀錄
+                </button>
+                <button 
+                  onClick={() => setShowStats(false)}
+                  className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+            </div>
           </div>
 
-          {/* Tab Switcher */}
           <div className="flex border-b border-slate-800 bg-slate-900/30 p-1 mx-4 mt-4 rounded-xl">
             <button 
               onClick={() => setStatsView('overview')}
@@ -907,12 +902,7 @@ const App: React.FC = () => {
               <List size={16} /> 詳細紀錄
             </button>
           </div>
-          
-          <div className="px-4 py-3 text-xs text-slate-500 text-center font-medium tracking-wide">
-            資料範圍：最近 6 個月 (Last 6 Months)
-          </div>
 
-          {/* Content Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-12">
             
             {/* VIEW: AGGREGATED OVERVIEW */}
@@ -928,15 +918,11 @@ const App: React.FC = () => {
                  ) : (
                    aggregatedStats.map((item, index) => {
                      const average = item.occurrences > 0 ? (item.total / item.occurrences).toFixed(1).replace(/\.0$/, '') : "0";
-                     
-                     // Rank Styling
                      let rankStyle = "bg-slate-800 text-slate-500";
                      let borderClass = "border-slate-800";
-                     let glowClass = "";
                      if (index === 0) {
                         rankStyle = "bg-yellow-500 text-yellow-950 shadow-[0_0_15px_rgba(234,179,8,0.4)]";
                         borderClass = "border-yellow-500/30";
-                        glowClass = "shadow-[inset_0_0_20px_rgba(234,179,8,0.05)]";
                      } else if (index === 1) {
                         rankStyle = "bg-slate-300 text-slate-900 shadow-[0_0_15px_rgba(203,213,225,0.3)]";
                         borderClass = "border-slate-400/30";
@@ -946,36 +932,26 @@ const App: React.FC = () => {
                      }
 
                      return (
-                     <div key={item.name} className={`bg-slate-900/60 border ${borderClass} p-5 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 duration-300 relative overflow-hidden ${glowClass}`} style={{animationDelay: `${index * 50}ms`}}>
-                       
-                       {/* Left: Name and Total/Average */}
+                     <div key={item.name} className={`bg-slate-900/60 border ${borderClass} p-5 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{animationDelay: `${index * 50}ms`}}>
                        <div className="flex items-center gap-4 z-10">
-                         <div className={`
-                           w-8 h-8 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0 ${rankStyle}
-                         `}>
+                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black flex-shrink-0 ${rankStyle}`}>
                            {index < 3 ? <Trophy size={14} /> : index + 1}
                          </div>
                          <div className="flex flex-col">
                             <span className="text-white font-bold text-lg leading-tight mb-1">{item.name}</span>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                               <span className="flex items-baseline gap-1">
-                                總計次數：<span className="text-slate-300 font-bold font-sans tabular-nums text-sm">{item.total}</span>
+                                總計：<span className="text-slate-300 font-bold tabular-nums">{item.total}</span>
                               </span>
                               <span className="flex items-baseline gap-1">
-                                平均每次：<span className="text-indigo-400 font-bold font-sans tabular-nums text-sm">{average}</span>
+                                平均：<span className="text-indigo-400 font-bold tabular-nums">{average}</span>
                               </span>
                             </div>
                          </div>
                        </div>
-                       
-                       {/* Right: Recorded Times (Big Number) */}
                        <div className="text-right z-10 pl-2">
-                         <div className="font-sans tabular-nums text-2xl font-black text-white">
-                           {item.occurrences}
-                         </div>
-                         <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-                           紀錄次數
-                         </div>
+                         <div className="font-sans tabular-nums text-2xl font-black text-white">{item.occurrences}</div>
+                         <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">天</div>
                        </div>
                      </div>
                    )})
@@ -983,7 +959,7 @@ const App: React.FC = () => {
                </div>
             )}
 
-            {/* VIEW: DAILY HISTORY */}
+            {/* VIEW: HISTORY */}
             {statsView === 'history' && (
               <>
                 {historyData.length === 0 ? (
@@ -995,27 +971,20 @@ const App: React.FC = () => {
                   </div>
                 ) : (
                   <div className="relative">
-                     {/* Continuous Timeline Line */}
                      <div className="absolute left-[19px] top-4 bottom-0 w-px bg-slate-800/50 z-0"></div>
-
                     {historyData.map((dayStat, idx) => (
                       <div key={dayStat.date} className="relative z-10 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500" style={{animationDelay: `${idx * 50}ms`}}>
-                        
                         <div className="flex items-start gap-4 mb-3">
-                          {/* Date Node (Simple Dot) */}
                           <div className="flex-none flex items-center justify-center w-10 h-6 bg-slate-950 z-10">
                              <div className="w-3 h-3 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
                           </div>
-                          
-                          {/* Content */}
                           <div className="flex-1 pt-0.5">
                             <div className="text-slate-400 font-bold uppercase tracking-wide text-xs mb-3 flex items-center gap-2">
                               {formatDateDisplay(dayStat.date)}
                             </div>
-
                             <div className="space-y-2">
                               {dayStat.items.map((item, itemIdx) => (
-                                <div key={`${dayStat.date}-${item.projectId}-${itemIdx}`} className="bg-slate-900/60 border border-slate-800/50 p-3 rounded-xl flex justify-between items-center group hover:bg-slate-800/60 transition-colors">
+                                <div key={`${dayStat.date}-${item.projectId}-${itemIdx}`} className="bg-slate-900/60 border border-slate-800/50 p-3 rounded-xl flex justify-between items-center group">
                                   <span className="text-slate-200 font-medium">{item.name}</span>
                                   <div className="flex items-center gap-3">
                                     <span className="font-sans tabular-nums text-indigo-300 font-bold bg-indigo-500/10 px-2.5 py-1 rounded-md text-sm">
@@ -1024,7 +993,6 @@ const App: React.FC = () => {
                                     <button 
                                       onClick={(e) => requestDeleteLog(item.projectId, dayStat.date, e)}
                                       className="p-1.5 text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                                      aria-label="Delete record"
                                     >
                                       <Trash2 size={16} />
                                     </button>
@@ -1040,6 +1008,165 @@ const App: React.FC = () => {
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- Manual Log Modal (Custom Radio List) --- */}
+      {showManualLog && (
+        <div className="absolute inset-0 z-[60] bg-slate-950 flex flex-col animate-in slide-in-from-bottom duration-300">
+           {/* Header */}
+           <div className="p-5 flex items-center justify-between border-b border-slate-800 bg-slate-900/50">
+            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                <CalendarPlus size={20} />
+              </div>
+              補填/修改紀錄
+            </h2>
+            <button 
+              onClick={() => setShowManualLog(false)}
+              className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            
+            {/* Project List (Radio Style) */}
+            <div className="space-y-3">
+              <label className="text-sm font-bold text-slate-400 ml-1 uppercase tracking-wider">選擇項目</label>
+              <div className="grid gap-3">
+                {uniqueProjectsForSelector.map(p => {
+                    const isSelected = manualLogProjectId === p.id;
+                    return (
+                        <div 
+                            key={p.id}
+                            onClick={() => setManualLogProjectId(p.id)}
+                            className={`
+                                relative p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between
+                                ${isSelected 
+                                    ? 'bg-indigo-900/20 border-indigo-500 shadow-lg shadow-indigo-500/10' 
+                                    : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
+                                }
+                            `}
+                        >
+                            <span className={`font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                                {p.name}
+                            </span>
+                            {isSelected ? (
+                                <CheckCircle2 className="text-indigo-400" size={20} />
+                            ) : (
+                                <Circle className="text-slate-600" size={20} />
+                            )}
+                        </div>
+                    );
+                })}
+              </div>
+            </div>
+
+            {/* Date Input */}
+            <div className="space-y-3">
+              <label className="text-sm font-bold text-slate-400 ml-1 uppercase tracking-wider">日期</label>
+              <input
+                type="date"
+                max={getTodayString()}
+                value={manualLogDate}
+                onChange={(e) => setManualLogDate(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3.5 text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors [color-scheme:dark]"
+              />
+            </div>
+
+            {/* Count Input */}
+            <div className="space-y-3">
+              <label className="text-sm font-bold text-slate-400 ml-1 uppercase tracking-wider">次數</label>
+              <input
+                type="number"
+                pattern="\d*"
+                placeholder="輸入數字"
+                value={manualLogCount}
+                onChange={(e) => setManualLogCount(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3.5 text-xl font-bold text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors placeholder:text-slate-600"
+              />
+            </div>
+
+            <button
+                onClick={handleManualLogSubmit}
+                disabled={!manualLogProjectId || manualLogCount === ''}
+                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:scale-100 shadow-lg shadow-indigo-900/20 mt-4"
+              >
+                儲存紀錄
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- Delete Confirmation Modal --- */}
+      {deleteTarget && (
+        <div className="absolute inset-0 z-[70] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center gap-4 mb-4 text-rose-500">
+              <div className="p-3 bg-rose-500/10 rounded-2xl">
+                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? (
+                   <Archive size={24} className="text-indigo-400" />
+                ) : (
+                   <AlertTriangle size={24} />
+                )}
+              </div>
+              <h2 className="text-xl font-bold text-white">
+                {deleteTarget.type === 'project' 
+                  ? (deleteTarget.hasHistory ? '封存今日項目' : '刪除項目') 
+                  : '刪除紀錄'}
+              </h2>
+            </div>
+            
+            <div className="text-slate-400 mb-8 leading-relaxed">
+              {deleteTarget.type === 'project' ? (
+                deleteTarget.hasHistory ? (
+                  <>
+                    確定要將 "<span className="text-white font-bold">{deleteTarget.name}</span>" 從今日列表移除嗎？
+                    <div className="mt-3 p-3 bg-slate-800/80 border border-indigo-500/30 rounded-xl text-xs text-slate-300 font-medium flex items-start gap-2">
+                       <Check size={14} className="text-indigo-400 mt-0.5" />
+                       <div>
+                        過去的統計資料將會<span className="text-white font-bold">完整保留</span>。
+                        <br/><span className="text-slate-500">下次輸入相同名稱即可找回此項目。</span>
+                       </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    確定要刪除 "<span className="text-white font-bold">{deleteTarget.name}</span>" 嗎？
+                    <div className="mt-3 p-3 bg-rose-900/20 border border-rose-900/30 rounded-xl text-xs text-rose-300 font-medium">
+                      ⚠️ 此項目無歷史紀錄，將會被永久刪除。
+                    </div>
+                  </>
+                )
+              ) : (
+                <>
+                  確定要刪除此筆歷史紀錄嗎？
+                  <div className="mt-2 text-xs text-slate-500">僅刪除當日的計數紀錄。</div>
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-3.5 px-4 rounded-xl font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                取消
+              </button>
+              <button 
+                onClick={executeDelete}
+                className={`flex-1 py-3.5 px-4 rounded-xl font-bold text-white shadow-lg transition-colors
+                  ${deleteTarget.type === 'project' && deleteTarget.hasHistory 
+                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20' 
+                    : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/20'
+                  }`}
+              >
+                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? '確認移除' : '確認刪除'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1079,7 +1206,7 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-      
+
       {/* --- Factory Reset Confirmation Modal --- */}
       {showFactoryResetConfirm && (
         <div className="absolute inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -1110,79 +1237,6 @@ const App: React.FC = () => {
                 className="flex-1 py-3.5 px-4 rounded-xl font-bold bg-rose-600 text-white hover:bg-rose-500 shadow-lg shadow-rose-900/20 transition-colors"
               >
                 確認重置
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- Delete Confirmation Modal (Custom) --- */}
-      {deleteTarget && (
-        <div className="absolute inset-0 z-[70] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <div className="flex items-center gap-4 mb-4 text-rose-500">
-              <div className="p-3 bg-rose-500/10 rounded-2xl">
-                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? (
-                   <Archive size={24} className="text-indigo-400" />
-                ) : (
-                   <AlertTriangle size={24} />
-                )}
-              </div>
-              <h2 className="text-xl font-bold text-white">
-                {deleteTarget.type === 'project' 
-                  ? (deleteTarget.hasHistory ? '封存今日項目' : '刪除項目') 
-                  : '刪除紀錄'}
-              </h2>
-            </div>
-            
-            <div className="text-slate-400 mb-8 leading-relaxed">
-              {deleteTarget.type === 'project' ? (
-                deleteTarget.hasHistory ? (
-                  // Soft Delete Message
-                  <>
-                    確定要將 "<span className="text-white font-bold">{deleteTarget.name}</span>" 從今日列表移除嗎？
-                    <div className="mt-3 p-3 bg-slate-800/80 border border-indigo-500/30 rounded-xl text-xs text-slate-300 font-medium flex items-start gap-2">
-                       <Check size={14} className="text-indigo-400 mt-0.5" />
-                       <div>
-                        過去的統計資料將會<span className="text-white font-bold">完整保留</span>。
-                        <br/><span className="text-slate-500">下次輸入相同名稱即可找回此項目。</span>
-                       </div>
-                    </div>
-                  </>
-                ) : (
-                  // Hard Delete Message
-                  <>
-                    確定要刪除 "<span className="text-white font-bold">{deleteTarget.name}</span>" 嗎？
-                    <div className="mt-3 p-3 bg-rose-900/20 border border-rose-900/30 rounded-xl text-xs text-rose-300 font-medium">
-                      ⚠️ 此項目無歷史紀錄，將會被永久刪除。
-                    </div>
-                  </>
-                )
-              ) : (
-                // Log Delete Message
-                <>
-                  確定要刪除此筆歷史紀錄嗎？
-                  <div className="mt-2 text-xs text-slate-500">僅刪除當日的計數紀錄。</div>
-                </>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 py-3.5 px-4 rounded-xl font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
-              >
-                取消
-              </button>
-              <button 
-                onClick={executeDelete}
-                className={`flex-1 py-3.5 px-4 rounded-xl font-bold text-white shadow-lg transition-colors
-                  ${deleteTarget.type === 'project' && deleteTarget.hasHistory 
-                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20' 
-                    : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/20'
-                  }`}
-              >
-                {deleteTarget.type === 'project' && deleteTarget.hasHistory ? '確認移除' : '確認刪除'}
               </button>
             </div>
           </div>
