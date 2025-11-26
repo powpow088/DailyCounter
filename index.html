@@ -15,8 +15,27 @@
         -webkit-tap-highlight-color: transparent;
         font-family: 'Inter', sans-serif;
       }
+      
+      /* Custom Dark Scrollbar */
+      
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      
+      ::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.5); 
+      }
+      
+      ::-webkit-scrollbar-thumb {
+        background: rgba(71, 85, 105, 0.6); 
+        border-radius: 10px;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(99, 102, 241, 0.5); 
+      }
     </style>
-
   <script type="importmap">
 {
   "imports": {
@@ -27,11 +46,8 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/DailyCounter/assets/index-DVQWiNz8.js"></script>
 </head>
   <body class="bg-slate-950 text-white overflow-hidden">
     <div id="root"></div>
-  <link rel="manifest" href="/DailyCounter/manifest.webmanifest" />
-  <meta name="theme-color" content="#6366f1" />
-</body>
+  </body>
 </html>
